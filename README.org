@@ -1,0 +1,72 @@
+#+title: CL-Fzy
+
+A reimplementation/translation of [fzy](https://github.com/jhawthorn/fzy) in
+Common Lisp. *WIP*. Everything but the Tui should be working though. Uses
+~sb-thread~ and therefore should only be working on *SBCL*.
+
+#+begin_src shell
+make test # run tests
+make run # spawn repl
+make build # build binary
+#+end_src
+
+Tests have been translated from original *fzy* aswell (partially).
+
+* To Do
+- [ ] Cleanup
+- [ ] Cli
+- [ ] Adjust constants
+- [ ] Find out num of cores for worker count (4 for now)
+- [ ] Go faster
+- [ ] Tui
+- [ ] Docs
+
+
+* Roswell
+Did not try those yet:
+** How to use Roswell to build and share binaries
+
+From the project root:
+
+Run as a script:
+
+#+begin_src shell
+chmod +x roswell/cl-fzy.ros
+./roswell/cl-fzy.ros
+
+#+end_src
+Build a binary:
+
+#+begin_src shell
+ros build roswell/cl-fzy.ros
+
+#+end_src
+and run it:
+
+#+begin_src shell
+./roswell/cl-fzy
+
+#+end_src
+Or install it in ~/.roswell/bin:
+
+#+begin_src shell
+ros install roswell/cl-fzy.ros
+
+#+end_src
+It creates the binary in ~/.roswell/bin/
+Run it:
+
+#+begin_src shell
+~/.roswell/bin/cl-fzy [name]~&
+#+end_src
+
+Your users can install the script with ros install ccbadger/cl-fzy
+
+Use `+Q` if you don't have Quicklisp dependencies to save startup time.
+Use `ros build --disable-compression` to save on startup time and loose on application size.
+
+
+** See
+
+- https://github.com/roswell/roswell/wiki/
+- https://github.com/roswell/roswell/wiki/Reducing-Startup-Time

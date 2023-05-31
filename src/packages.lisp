@@ -1,3 +1,3 @@
 (defpackage :cl-fzy
-  (:use :cl)
+  (:use :cl :sb-thread)
   (:export :main))

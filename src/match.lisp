@@ -1,149 +1,182 @@
 (in-package :cl-fzy)
+(defconstant +score-max+ (float sb-ext:most-positive-word))
+(defconstant +score-min+ (float (* -1 sb-ext:most-positive-word)))
+
+(defconstant +match-max-len+ 1024)
+
 (defun strcasechr (s c)
-  (let ((accept (list c (char-upcase c) #\null)))
-    (position-if (lambda (x) (find x accept :test #'char-equal))
-                 s)))
+  "Return the position of the first character in s that is equal to c.
+The comparison is case-insensitive."
+  (let ((accept (string (char-upcase c))))
+    (position-if #'(lambda (ch) (find ch accept)) s)))
 
-(defun has-match (needle haystack)
-  (loop for nch across needle
-        for hch = (strcasechr haystack nch)
-        while hch
-        do (setf haystack (subseq haystack (1+ hch)))))
-(defmacro swap (x y &environment env)
-  (let ((tmp (gensym)))
-    `(let ((,tmp ,x))
-       (setf ,x ,y
-             ,y ,tmp))))
+(defun swap (x y)
+  "Swap the values of x and y."
+  ;; (declare (type integer x y))
+  (let ((temp x))
+    (setf x y)
+    (setf y temp)))
 
-(defun max (a b)
+(defun max_ (a b)
   (if (> a b) a b))
 
 (defstruct match-struct
+  "The match struct contains the precomputed data for the match.
+The match struct is used to avoid recomputing the bonus for each
+character in the haystack."
   (needle-len 0 :type integer)
   (haystack-len 0 :type integer)
-  (lower-needle (make-array match-max-len :element-type 'character) :type (array character))
-  (lower-haystack (make-array match-max-len :element-type 'character) :type (array character))
-  (match-bonus (make-array match-max-len :element-type 'single-float) :type (array single-float)))
+  (lower-needle (make-array +match-max-len+ :element-type 'character) :type (satisfies stringp))
+  (lower-haystack (make-array +match-max-len+ :element-type 'character) :type (satisfies stringp))
+  (match-bonus (make-array +match-max-len+ :element-type 'single-float) :type (array single-float)))
+
+(defun has-match (needle haystack)
+  "Return t if the needle is a substring of the haystack."
+  (when (and needle haystack)
+    (loop for nch across needle
+      for hch = (position nch haystack :test #'char-equal)
+      when hch do (setf haystack (subseq haystack (1+ hch)))
+      else do (return nil)
+      finally (return t))))
 
 (defun precompute-bonus (haystack match-bonus)
-  (let ((last-ch #\/))
-    (loop for ch across haystack
-          for i from 0
-          do (setf (aref match-bonus i) (compute-bonus last-ch ch)
-                   last-ch ch))))
+  "Precompute the bonus for each character in the haystack.
+The bonus is the score for a match with a consecutive character."
+  (loop for i below (length haystack)
+    for last-ch = #\/ then (aref haystack (1- i))
+    do (setf (aref match-bonus i) (float (compute-bonus last-ch (aref haystack i))))
+    ;; (loop for i from 0
+    ;;   for ch across haystack
+    ;;   for last-ch = #\/ then ch
+    ;;   do (setf (aref match-bonus i) (float (compute-bonus last-ch ch)))
+    ;; (format t "[ch,last_ch] = ~a , ~a~%" (aref haystack i) last-ch))
+    ))
+;; docstrings in common lisp functions:
+;; https://stackoverflow.com/questions/1031006/docstrings-in-common-lisp-functions
+;;
 (defun setup-match-struct (match needle haystack)
-  (setf (match-struct-needle-len match) (length needle)
-        (match-struct-haystack-len match) (length haystack))
-
-  (when (and (<= (match-struct-haystack-len match) match-max-len)
-             (<= (match-struct-needle-len match) (match-struct-haystack-len match)))
-    (loop for i below (match-struct-needle-len match)
-          do (setf (aref (match-struct-lower-needle match) i) (char-downcase (aref needle i))))
-    (loop for i below (match-struct-haystack-len match)
-          do (setf (aref (match-struct-lower-haystack match) i) (char-downcase (aref haystack i))))
-    (precompute-bonus haystack (match-struct-match-bonus match))))
-
+  "Setup the match struct.
+The match struct contains the precomputed data for the match."
+  (let ((needle-len (length needle))
+         (haystack-len (length haystack)))
+    (setf (match-struct-needle-len match) needle-len)
+    (setf (match-struct-haystack-len match) haystack-len)
+    (if (or (> haystack-len +match-max-len+)
+          (> needle-len haystack-len))
+      (return-from setup-match-struct))
+    (setf (match-struct-lower-needle match) (string-downcase needle))
+    (setf (match-struct-lower-haystack match) (string-downcase haystack))
+    (precompute-bonus haystack (match-struct-match-bonus match)))match)
 
 (defun match-row (match row curr-d curr-m last-d last-m)
+  "Compute the match score for the given row."
   (let* ((n (match-struct-needle-len match))
-         (m (match-struct-haystack-len match))
-         (i row)
-         (lower-needle (match-struct-lower-needle match))
-         (lower-haystack (match-struct-lower-haystack match))
-         (match-bonus (match-struct-match-bonus match))
-         (prev-score score-min)
-         (gap-score (if (= i (- n 1)) score-gap-trailing score-gap-inner)))
-    (loop for j below m
-          do (if (char-equal (aref lower-needle i) (aref lower-haystack j))
-                 (let ((score score-min))
-                   (if (= i 0)
-                       (setf score (+ (* j score-gap-leading) (aref match-bonus j)))
-                       (when (> j 0)
-                         (setf score (max (+ (aref last-m (- j 1)) (aref match-bonus j))
-                                          (+ (aref last-d (- j 1)) score-match-consecutive)))))
-                   (setf (aref curr-d j) score-min)
-                   (setf (aref curr-m j) (max prev-score (+ score gap-score)))
-                   (setf prev-score (max score (+ prev-score gap-score))))
-                 (progn
-                   (setf (aref curr-d j) score-min)
-                   (setf (aref curr-m j) (max prev-score (+ prev-score gap-score)))
-                   (setf prev-score (+ prev-score gap-score)))))))
+          (m (match-struct-haystack-len match))
+          (i row)
+          (lower-needle (match-struct-lower-needle match))
+          (lower-haystack (match-struct-lower-haystack match))
+          (match-bonus (match-struct-match-bonus match))
+          (prev-score +score-min+)
+          (gap-score (if (= i (1- n))
+                       +score-gap-trailing+
+                       +score-gap-inner+)))
+    (loop for j from 0 below m
+      for nhj = (aref lower-needle i)
+      for hsj = (aref lower-haystack j)
+      if (char= nhj hsj)
+      do (let ((score +score-min+))
+           (cond ((zerop i)
+                   (setf score (+ (* j +score-gap-leading+)
+                                 (aref match-bonus j))))
+             ((and (> i 0) (> j 0))
+               (setf score (max (+ (aref last-m (1- j))
+                                  (aref match-bonus j))
+                             (+ (aref last-d (1- j))
+                               +score-match-consecutive+)))))
+           (setf (aref curr-d j) score)
+           (setf (aref curr-m j) (setf prev-score (max score (+ prev-score gap-score)))))
+      else
+      do (progn
+           (setf (aref curr-d j) +score-min+)
+           (setf (aref curr-m j) (setf prev-score (+ prev-score gap-score)))))))
 
+(defun aref-dimension (array dimension)
+  "Return the array at the given dimension."
+  (let* ((len (array-dimension array 1))
+          (arr (make-array (list len))))
+    (loop for i from 0 below len
+      do (setf (aref arr i) (aref array dimension i)))
+    arr))
 
 (defun match (needle haystack)
-  (if (null needle)
-      score-min
-      (let ((match (make-match-struct needle haystack)))
-        (let ((n (match-needle-len match))
-              (m (match-haystack-len match)))
-          (if (or (> m match-max-len) (> n m))
-              ;; Unreasonably large candidate: return no score
-              ;; If it is a valid match it will still be returned, it will
-              ;; just be ranked below any reasonably sized candidates
-              score-min
-              (if (= n m)
-                  ;; Since this method can only be called with a haystack which
-                  ;; matches needle. If the lengths of the strings are equal the
-                  ;; strings themselves must also be equal (ignoring case).
-                  score-max
-                  (let ((D (make-array `(2 ,match-max-len)
-                                        :element-type 'score-t
-                                        :initial-element score-min)))
-                    (let ((M (make-array `(2 ,match-max-len)
-                                          :element-type 'score-t
-                                          :initial-element score-min)))
-                      (let ((last-D (aref D 0))
-                            (last-M (aref M 0))
-                            (curr-D (aref D 1))
-                            (curr-M (aref M 1)))
-                        (dotimes (i n)
-                          (match-row match i curr-D curr-M last-D last-M)
-                          (setf (values curr-D last-D) (values last-D curr-D))
-                          (setf (values curr-M last-M) (values last-M curr-M))))
-                      (aref last-M (1- m))))))))))
-(defun match-positions (needle haystack &optional (positions nil))
-  (if (not (string= needle ""))
-      (let ((match (make-match-struct)))
-        (setup-match-struct match needle haystack)
-        (let* ((n (match-needle-len match))
-               (m (match-haystack-len match)))
-          (cond ((> m MATCH_MAX_LEN) SCORE_MIN)
-                ((> n m) SCORE_MIN)
-                ((= n m)
-                 (if positions
-                     (loop for i below n do (setf (elt positions i) i))
-                     SCORE_MAX))
-                (t (let* ((D (make-array `(2 ,MATCH_MAX_LEN) :element-type 'score-t))
-                          (M (make-array `(2 ,MATCH_MAX_LEN) :element-type 'score-t))
-                          (last-D (aref D 0))
-                          (last-M (aref M 0))
-                          (curr-D (aref D 1))
-                          (curr-M (aref M 1)))
-                     (loop for i below n do
-                        (let ((p (elt (elt match :rows) i)))
-                          (match-row match i curr-D curr-M last-D last-M)
-                          (setf curr-D (aref D i))
-                          (setf curr-M (aref M i))
-                          (setf (aref D i) last-D)
-                          (setf (aref M i) last-M)
-                          (setf last-D curr-D)
-                          (setf last-M curr-M)))
-                     (if positions
-                         (let ((match-required nil))
-                           (loop for i downfrom (- n 1) to 0 do
-                              (loop for j downfrom (- m 1) to 0 do
-                                 (when (and (not match-required)
-                                            (/= (aref D i j) SCORE_MIN)
-                                            (or (= (aref D i j) (aref M i j))
-                                                (<= (aref M i j)
-                                                    (+ (aref D (1- i) (1- j))
-                                                       SCORE_MATCH_CONSECUTIVE))))
-                                   (setf match-required
-                                         (and (> i 0) (> j 0)
-                                              (= (aref M i j)
-                                                 (+ (aref D (1- i) (1- j))
-                                                    SCORE_MATCH_CONSECUTIVE))))
-                                   (setf (elt positions i) j)
-                                   (setf j (- j 1))
-                                   (break))))))
-                     (aref M (1- n) (1- m)))))))))
+  "Return the match score for the given needle and haystack."
+  (when (string= needle "")
+    (return-from match +score-min+))
+  (let ((match (make-match-struct)))
+    (setup-match-struct match needle haystack)
+    (let* ((n (match-struct-needle-len match))
+            (m (match-struct-haystack-len match))
+            (d (make-array (list 2 +match-max-len+) :initial-element +score-min+))
+            (m-array (make-array (list 2 +match-max-len+) :initial-element +score-min+))
+            (last-d (aref-dimension d 0))
+            (last-m (aref-dimension m-array 0))
+            (curr-d (aref-dimension d 1))
+            (curr-m (aref-dimension m-array 1)))
+      (if (or (> m +match-max-len+) (> n m))
+        (return-from match +score-min+)
+        (if (= n m)
+          (return-from match +score-max+)))
+      (loop for i from 0 below n
+        do (match-row match i curr-d curr-m last-d last-m)
+        (rotatef curr-d last-d)
+        (rotatef curr-m last-m))
+      (aref last-m (1- m)))))
+
+(defun match-positions (needle haystack positions)
+  (if (string= needle "")
+    +score-min+
+    (let ((match (make-match-struct)))
+      (setup-match-struct match needle haystack)
+      (let* ((n (match-struct-needle-len match))
+              (m (match-struct-haystack-len match)))
+        (if (or (> m +match-max-len+) (> n m))
+          +score-min+
+          (if (= n m)
+            (progn
+              (when positions
+                (loop for i from 0 below n
+                  do (setf (elt positions i) i)))
+              +score-max+)
+            (let* (
+                    (d-array (make-instance 'arr2d :arr-length n))
+                    (m-array (make-instance 'arr2d :arr-length n))
+                    (last-d nil)
+                    (last-m nil)
+                    (curr-d nil)
+                    (curr-m nil))
+              ;; Initialize arrays d and m with arrays of size MATCH_MAX_LEN
+              (dotimes (i n)
+                (set-row d-array i (make-array +match-max-len+ :initial-element 0))
+                (set-row m-array i (make-array +match-max-len+ :initial-element 0)))
+              ;; Process rows
+              (dotimes (i n)
+                (setf curr-d (get-row d-array i))
+                (setf curr-m (get-row m-array i))
+                (match-row match i curr-d curr-m last-d last-m)
+                (setf last-d curr-d)
+                (setf last-m curr-m))
+              (when positions
+                (let ((match-required 0))
+                  (loop for i from (- n 1) downto 0 do
+                    (loop for j from (- m 1) downto 0 do
+                      (let ((d-ij (aref (get-row d-array i) j))
+                             (m-ij (aref (get-row m-array i) j)))
+                        (when (and (/= d-ij +score-min+)
+                                (or (/= match-required 0) (= d-ij m-ij)))
+                          (setf match-required (if (and (> i 0) (> j 0)
+                                                     (= m-ij (+ (aref (get-row d-array (- i 1)) (- j 1)) +score-match-consecutive+)))
+                                                 1 0))
+                          (setf (aref positions i) j)
+                          (decf j)
+                          (return)))))))
+              (aref last-m (1- m)))))))))
