@@ -23,6 +23,8 @@ jobs:
       - run: curl -L https://raw.githubusercontent.com/roswell/roswell/release/scripts/install-for-ci.sh | bash
       - run: ros install sbcl-bin/2.3.0
       - run: ros use sbcl-bin/2.3.0
+      - run: ros install neil-lindquist/ci-utils # for run-fiveam
+
       - run: run-fiveam -e t -l cl-fzy-tests :cl-fzy-tests
       #- run: run-prove foo.asd
       #- run: rove foo.asd
