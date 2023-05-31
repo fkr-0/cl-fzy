@@ -1,8 +1,8 @@
 #+title: CL-Fzy
 
-A reimplementation/translation of [fzy](https://github.com/jhawthorn/fzy) in
-Common Lisp. *WIP*. Everything but the Tui should be working though. Uses
-~sb-thread~ and therefore should only be working on *SBCL*.
+A reimplementation/translation of [[https://github.com/jhawthorn/fzy][Fzy]] in Common Lisp. *WIP*. Everything but the
+Tui should be working though. Uses ~sb-thread~ and therefore should only be
+working on *SBCL*.
 
 #+begin_src shell
 make test # run tests
@@ -66,7 +66,3 @@ Use `+Q` if you don't have Quicklisp dependencies to save startup time.
 Use `ros build --disable-compression` to save on startup time and loose on application size.
 
 
-** See
-
-- https://github.com/roswell/roswell/wiki/
-- https://github.com/roswell/roswell/wiki/Reducing-Startup-Time
