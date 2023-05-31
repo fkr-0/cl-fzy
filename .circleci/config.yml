@@ -23,7 +23,7 @@ jobs:
             ros use sbcl-bin/2.3.0 && \
             ros install neil-lindquist/ci-utils # for run-fiveam
       - run: make build
-      - run: mv cl-fzy build/
+      - run: mkdir -p build && mv cl-fzy build/
       - store_artifacts:
           path: build/
   sbcl-test:
