@@ -6,7 +6,27 @@ version: 2
 # So, each implementation needs an entry in the jobs group, and to be listed in the workflows section at the bottom.
 
 jobs:
-  sbcl:
+  sbcl-build:
+    environment:
+      LISP: sbcl-bin
+      VERSION: 2.3.0
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - checkout
+      - run: 
+          name: Setup SBCL and CI
+          command: |
+            echo $LISP && \
+            curl -L https://raw.githubusercontent.com/roswell/roswell/release/scripts/install-for-ci.sh | bash && \
+            ros install sbcl-bin/2.3.0 && \
+            ros use sbcl-bin/2.3.0 && \
+            ros install neil-lindquist/ci-utils # for run-fiveam
+      - run: make build
+      - run: mkdir -p build && mv cl-fzy build/
+      - store_artifacts:
+          path: build/
+  sbcl-test:
     docker:
       - image: circleci/buildpack-deps:stretch-curl
     environment:
@@ -33,4 +53,5 @@ workflows:
   version: 2
   run_tests:
     jobs:
-      - sbcl
+      - sbcl-test
+      - sbcl-build
